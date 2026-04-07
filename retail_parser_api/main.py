@@ -1,144 +1,134 @@
 """
-Парсер retail-сетей для поиска товаров производителей:
-- Барнаульский Молочный комбинат (АО БМК)
-- Логовская сыроварня
-
-И брендов:
-- Лакт, Молочная сказка, Модест, Чуйский
-- Логовская сыроварня, Частица Алтая, Сибирское подворье
-- Ромбер, Romber
+Главный скрипт для запуска парсеров всех retail-сетей.
+Ищет продукцию Барнаульского Молочного Комбината и связанных брендов.
 """
-
-import asyncio
 import json
+import csv
 from datetime import datetime
+from typing import List, Dict
 
-from retail_parser_api import RetailParserAPI
+# Импортируем все парсеры
+from parsers.base import Product
+from parsers.bystronom import BystronomParser
+from parsers.yarcheplus import YarchePlusParser
+from parsers.metro import MetroParser
+from parsers.okmarket import OKMarketParser
+from parsers.begemag import BegemagParser
+from parsers.monetka import MonetkaParser
+from parsers.yandex_lavka import YandexLavkaParser
+from parsers.samokat import SamokatParser
+from parsers.komandor import KomandorParser
+from parsers.pyaterochka import PyaterochkaParser
+from parsers.auchan import AuchanParser
+from parsers.lenta import LentaParser
+from parsers.chizhik import ChizhikParser
+from parsers.magnit import MagnitParser
 
 
-async def parse_all_chains():
-    """Основная функция для парсинга всех сетей."""
+# Список всех парсеров с названиями сетей
+PARSERS = [
+    ("Быстроном", BystronomParser),
+    ("Ярче+", YarchePlusParser),
+    ("МЕТРО", MetroParser),
+    ("О'КЕЙ", OKMarketParser),
+    ("Бегемаг", BegemagParser),
+    ("Монетка", MonetkaParser),
+    ("Яндекс.Лавка", YandexLavkaParser),
+    ("Самокат", SamokatParser),
+    ("Командор", KomandorParser),
+    ("Пятёрочка", PyaterochkaParser),
+    ("АШАН", AuchanParser),
+    ("ЛЕНТА", LentaParser),
+    ("Чижик", ChizhikParser),
+    ("Магнит", MagnitParser),
+]
+
+
+def run_parser(parser_class, shop_name: str) -> List[Product]:
+    """Запуск одного парсера с обработкой ошибок"""
+    print(f"\n{'='*60}")
+    print(f"🛒 Запуск парсинга: {shop_name}")
+    print(f"{'='*60}")
     
-    # Создаем конфигуратор с headless=True для работы без GUI
-    async with RetailParserAPI(headless=True) as api:
-        print("=" * 60)
-        print("ПАРСЕР RETAIL-СЕТЕЙ")
-        print("=" * 60)
-        print(f"\nЦелевые производители:")
-        for mfr in api.MANUFACTURERS:
-            print(f"  - {mfr}")
-        print(f"\nЦелевые бренды:")
-        for brand in api.BRANDS:
-            print(f"  - {brand}")
-        print(f"\nСети для парсинга ({len(api.CHAINS)}):")
-        for chain in api.CHAINS:
-            print(f"  - {chain['name']}: {chain['url']}")
-        print()
-
-        all_found_products = []
-
-        # Проходим по каждой сети
-        for chain in api.CHAINS:
-            print(f"\n{'='*60}")
-            print(f"Парсинг сети: {chain['name']}")
-            print(f"URL: {chain['url']}")
-            print(f"{'='*60}")
-
-            try:
-                # Поиск целевых товаров в сети
-                products = await api.Catalog.find_target_products(chain)
-                
-                if products:
-                    print(f"✓ Найдено {len(products)} товаров")
-                    
-                    # Добавляем информацию о сети к каждому товару
-                    for product in products:
-                        product['chain_name'] = chain['name']
-                        product['chain_url'] = chain['url']
-                        product['parsed_at'] = datetime.now().isoformat()
-                    
-                    all_found_products.extend(products)
-                    
-                    # Выводим краткую информацию о найденных товарах
-                    for i, product in enumerate(products[:10], 1):  # Первые 10
-                        name = product.get('name', 'Без названия')
-                        brand = product.get('brand', product.get('manufacturer', 'Н/Д'))
-                        price = product.get('price', product.get('current_price', 'Н/Д'))
-                        print(f"  {i}. {name[:50]}... - {brand} ({price} ₽)")
-                    
-                    if len(products) > 10:
-                        print(f"  ... и ещё {len(products) - 10} товаров")
-                else:
-                    print(f"✗ Товары не найдены")
-                    
-            except Exception as e:
-                print(f"✗ Ошибка при парсинге {chain['name']}: {e}")
-
-        # Итоги
-        print(f"\n{'='*60}")
-        print(f"ИТОГИ ПАРСИНГА")
-        print(f"{'='*60}")
-        print(f"Всего найдено товаров: {len(all_found_products)}")
-        
-        # Группировка по сетям
-        by_chain = {}
-        for product in all_found_products:
-            chain_name = product.get('chain_name', 'unknown')
-            if chain_name not in by_chain:
-                by_chain[chain_name] = []
-            by_chain[chain_name].append(product)
-        
-        print("\nРаспределение по сетям:")
-        for chain_name, products in sorted(by_chain.items(), key=lambda x: -len(x[1])):
-            print(f"  {chain_name}: {len(products)} товаров")
-
-        # Сохранение результатов
-        if all_found_products:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"bmk_products_{timestamp}.json"
-            
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(all_found_products, f, ensure_ascii=False, indent=2)
-            
-            print(f"\n✓ Данные сохранены в файл: {filename}")
-            
-            # Также сохраняем CSV для удобства
-            csv_filename = f"bmk_products_{timestamp}.csv"
-            save_to_csv(all_found_products, csv_filename)
-            print(f"✓ Данные сохранены в CSV: {csv_filename}")
-        
-        return all_found_products
+    try:
+        parser = parser_class()
+        products = parser.parse()
+        return products
+    except Exception as e:
+        print(f"❌ Ошибка при парсинге {shop_name}: {e}")
+        return []
 
 
-def save_to_csv(products: list[dict], filename: str):
-    """Сохранение товаров в CSV формат."""
-    import csv
+def save_results(all_products: List[Product], output_format: str = "both"):
+    """Сохранение результатов в JSON и CSV"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    if not products:
-        return
+    products_data = [p.to_dict() for p in all_products]
     
-    # Определяем все возможные поля
-    all_fields = set()
-    for product in products:
-        all_fields.update(product.keys())
+    results = {
+        "timestamp": timestamp,
+        "total_products": len(products_data),
+        "shops": list(set(p["shop"] for p in products_data)),
+        "products": products_data
+    }
     
-    # Основные поля в нужном порядке
-    main_fields = [
-        'chain_name', 'name', 'brand', 'manufacturer', 
-        'price', 'current_price', 'old_price',
-        'id', 'sku', 'plu', 'category',
-        'image_url', 'product_url', 'parsed_at'
-    ]
+    if output_format in ("json", "both"):
+        json_filename = f"results/bmk_products_{timestamp}.json"
+        with open(json_filename, 'w', encoding='utf-8') as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
+        print(f"\n✓ JSON сохранён: {json_filename}")
     
-    # Добавляем остальные поля
-    other_fields = sorted(all_fields - set(main_fields))
-    fieldnames = main_fields + other_fields
+    if output_format in ("csv", "both"):
+        csv_filename = f"results/bmk_products_{timestamp}.csv"
+        if products_data:
+            fieldnames = ["shop", "name", "price", "currency", "brand", "manufacturer", "url", "image_url", "weight"]
+            with open(csv_filename, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for product in products_data:
+                    writer.writerow({k: product.get(k, '') for k in fieldnames})
+            print(f"✓ CSV сохранён: {csv_filename}")
     
-    with open(filename, 'w', encoding='utf-8', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
-        writer.writeheader()
-        writer.writerows(products)
+    return results
+
+
+def main():
+    """Основная функция запуска"""
+    print("="*60)
+    print("🔍 Парсер продукции Барнаульского Молочного Комбината")
+    print("   Производители: БМК, Логовская сыроварня")
+    print("   Бренды: Лакт, Молочная сказка, Модест, Чуйский, Частица Алтая, Сибирское подворье, Ромбер")
+    print("="*60)
+    
+    all_products: List[Product] = []
+    
+    for shop_name, parser_class in PARSERS:
+        products = run_parser(parser_class, shop_name)
+        all_products.extend(products)
+    
+    print(f"\n{'='*60}")
+    print("📊 ИТОГИ ПАРСИНГА")
+    print(f"{'='*60}")
+    print(f"Всего найдено товаров: {len(all_products)}")
+    
+    by_shop: Dict[str, int] = {}
+    for p in all_products:
+        by_shop[p.shop] = by_shop.get(p.shop, 0) + 1
+    
+    print("\nПо магазинам:")
+    for shop, count in sorted(by_shop.items()):
+        print(f"  • {shop}: {count} товаров")
+    
+    if all_products:
+        save_results(all_products, "both")
+    else:
+        print("\n⚠️ Товары не найдены. Возможно, сайты используют JS или защиту от ботов.")
+        print("   Попробуйте запустить с другими настройками или проверить селекторы.")
+    
+    print(f"\n{'='*60}")
+    print("✅ Парсинг завершён!")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":
-    asyncio.run(parse_all_chains())
+    main()
