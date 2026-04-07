@@ -1,0 +1,5 @@
+camoufox[geoip]
+human_requests
+aiohttp
+aiohttp-retry
+playwright
